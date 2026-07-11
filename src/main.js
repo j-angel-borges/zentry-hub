@@ -173,8 +173,10 @@ function applyCalendarEventsToTimeblock() {
 
 function generateTimeSlots() {
   const slots = [];
-  for (let h = 6; h <= 23; h++) {
+  for (let h = 4; h <= 23; h++) {
     for (let m = 0; m < 60; m += 15) {
+      if (h === 4 && m < 30) continue;
+      if (h === 23 && m > 30) continue;
       const hh = String(h).padStart(2, '0');
       const mm = String(m).padStart(2, '0');
       slots.push({ time: `${hh}:${mm}`, isHour: m === 0 });
@@ -347,6 +349,7 @@ document.getElementById('global-progress-text').textContent = `${globalProgressV
 // Build Document Tree in Sidebar
 function buildDocTree() {
   const treeContainer = document.getElementById('ssot-tree');
+  if (!treeContainer) return;
   treeContainer.innerHTML = '';
 
   const folders = {};
@@ -427,6 +430,209 @@ function buildDocTree() {
     folderNode.appendChild(folderPages);
     treeContainer.appendChild(folderNode);
   });
+}
+
+// Brick Wall Helpers
+function renderBricksHTML(bricks) {
+  if (bricks.length === 0) {
+    return `<div style="text-align:center; padding: 40px; color: var(--text-dark); opacity: 0.6;">No hay ladrillos construidos aún. Empieza marcando tus bloques de tiempo completados con 🧱.</div>`;
+  }
+  
+  // We want to create a staggered brick wall.
+  // We'll wrap them in rows. Each row can hold e.g. 5 or 6 bricks.
+  // Actually, flex layout with wrap and alternating margins works well.
+  let html = '<div class="brick-row">';
+  let count = 0;
+  let rowLength = 5;
+  let rowIndex = 0;
+  
+  bricks.forEach((brick, idx) => {
+    if (count >= rowLength) {
+      html += '</div><div class="brick-row ' + (rowIndex % 2 === 0 ? 'offset-row' : '') + '">';
+      count = 0;
+      rowIndex++;
+    }
+    
+    // Add data attributes for the modal
+    html += `
+      <div class="brick" 
+           data-date="${brick.date}" 
+           data-time="${brick.time}" 
+           data-text="${brick.text.replace(/"/g, '&quot;')}"
+           data-details="${(brick.details || '').replace(/"/g, '&quot;')}"
+           data-type="${brick.type || ''}">
+      </div>
+    `;
+    count++;
+  });
+  html += '</div>';
+  return html;
+}
+
+function setupBrickWallInteraction(baseScale) {
+  const viewport = document.getElementById('wall-viewport');
+  const canvas = document.getElementById('wall-canvas');
+  let currentScale = baseScale;
+  let isDragging = false;
+  let startX, startY, translateX = 0, translateY = 0;
+
+  // Pan / Drag functionality
+  viewport.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.brick')) return; // let click pass through to brick
+    isDragging = true;
+    viewport.style.cursor = 'grabbing';
+    startX = e.clientX - translateX;
+    startY = e.clientY - translateY;
+  });
+
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
+    viewport.style.cursor = 'grab';
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    translateX = e.clientX - startX;
+    translateY = e.clientY - startY;
+    updateTransform();
+  });
+
+  // Zoom controls
+  const zoomInBtn = document.getElementById('zoom-in');
+  const zoomOutBtn = document.getElementById('zoom-out');
+  const zoomResetBtn = document.getElementById('zoom-reset');
+
+  function updateTransform() {
+    canvas.style.transform = `translate(${translateX}px, ${translateY}px) scale(${currentScale})`;
+  }
+
+  function setZoom(scale) {
+    currentScale = Math.max(0.1, Math.min(scale, 3.0));
+    updateTransform();
+  }
+
+  if(zoomInBtn) zoomInBtn.addEventListener('click', () => setZoom(currentScale + 0.1));
+  if(zoomOutBtn) zoomOutBtn.addEventListener('click', () => setZoom(currentScale - 0.1));
+  if(zoomResetBtn) zoomResetBtn.addEventListener('click', () => {
+    translateX = 0; translateY = 0; setZoom(baseScale);
+  });
+
+  viewport.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const zoomAmount = e.deltaY * -0.001;
+    setZoom(currentScale + zoomAmount);
+  });
+
+  const bricks = document.querySelectorAll('.brick');
+  const modal = document.getElementById('brick-modal');
+  const modalDate = document.getElementById('brick-modal-date');
+  const modalText = document.getElementById('brick-modal-text');
+  const modalType = document.getElementById('brick-modal-type');
+  const modalDetailsContainer = document.getElementById('brick-modal-details-container');
+  const modalDetailsText = document.getElementById('brick-modal-details');
+  const closeBtn = document.getElementById('brick-modal-close');
+  const editBtn = document.getElementById('brick-modal-edit');
+  const deleteBtn = document.getElementById('brick-modal-delete');
+  
+  let currentActiveBrickData = null;
+
+  bricks.forEach(b => {
+    b.addEventListener('click', () => {
+      const date = b.dataset.date;
+      const time = b.dataset.time;
+      const text = b.dataset.text;
+      const type = b.dataset.type;
+      const details = b.dataset.details;
+      
+      currentActiveBrickData = { date, time, text, type, details };
+      
+      modalText.contentEditable = 'false';
+      modalDetailsText.contentEditable = 'false';
+      modalText.style.border = 'none';
+      modalDetailsText.style.border = 'none';
+      if (editBtn) {
+        editBtn.textContent = 'Editar';
+        editBtn.classList.remove('btn-primary');
+        editBtn.classList.add('btn-secondary');
+      }
+      
+      modalDate.textContent = `📅 ${date} • ${time}`;
+      modalText.textContent = text;
+      
+      if (details && details !== 'undefined' && details.trim() !== '') {
+        modalDetailsText.textContent = details;
+        modalDetailsContainer.style.display = 'block';
+      } else {
+        modalDetailsText.textContent = '';
+        modalDetailsContainer.style.display = 'none';
+      }
+
+      if (type === 'importante') {
+        modalType.textContent = 'IMP';
+        modalType.style.color = '#4a5160';
+        modalType.style.border = '1px solid #4a5160';
+        modalType.style.display = 'inline-block';
+      } else if (type === 'productivo') {
+        modalType.textContent = 'PROD';
+        modalType.style.color = '#d4af37';
+        modalType.style.border = '1px solid #d4af37';
+        modalType.style.display = 'inline-block';
+      } else if (type === 'etc') {
+        modalType.textContent = 'ETC...';
+        modalType.style.color = '#f57c00';
+        modalType.style.border = '1px solid #f57c00';
+        modalType.style.display = 'inline-block';
+      } else {
+        modalType.style.display = 'none';
+      }
+
+      modal.classList.add('show');
+    });
+  });
+  
+  if (editBtn) {
+    editBtn.addEventListener('click', () => {
+      const isEditing = modalText.contentEditable === 'true';
+      if (!isEditing) {
+        modalText.contentEditable = 'true';
+        modalDetailsText.contentEditable = 'true';
+        modalText.style.border = '1px dashed var(--primary)';
+        modalDetailsText.style.border = '1px dashed var(--primary)';
+        modalDetailsContainer.style.display = 'block';
+        editBtn.textContent = 'Guardar';
+        editBtn.classList.remove('btn-secondary');
+        editBtn.classList.add('btn-primary');
+      } else {
+        const newText = modalText.textContent;
+        const newDetails = modalDetailsText.textContent;
+        
+        updateBrickInStorage(currentActiveBrickData.date, currentActiveBrickData.time, {
+          text: newText,
+          details: newDetails
+        });
+        
+        modal.classList.remove('show');
+        renderers.zentryos();
+      }
+    });
+  }
+  
+  if (deleteBtn) {
+    deleteBtn.addEventListener('click', () => {
+      if (confirm('¿Estás seguro de eliminar este ladrillo? Volverá a ser un bloque normal.')) {
+        updateBrickInStorage(currentActiveBrickData.date, currentActiveBrickData.time, { isBrick: false });
+        modal.classList.remove('show');
+        renderers.zentryos();
+      }
+    });
+  }
+
+  if(closeBtn) {
+    closeBtn.addEventListener('click', () => {
+      modal.classList.remove('show');
+    });
+  }
 }
 
 // Views Renderers
@@ -828,7 +1034,7 @@ const renderers = {
     container.innerHTML = `
       <div class="demobook-minimal-container">
         <div class="demobook-grid">
-          <a href="https://zentry-bienestar.vercel.app" target="_blank" rel="noopener noreferrer" class="demobook-card-link">
+          <a href="https://script.google.com/macros/s/AKfycbxcL87WoSNKkbFl7WyWi6UqvDHjsCRbz1gBdB9XCDLn7MWNUX1mPFEoHgxRVIE5RHPB/exec" target="_blank" rel="noopener noreferrer" class="demobook-card-link">
             <div class="demobook-card-minimal">
               <div class="demobook-card-content">
                 <span class="demobook-card-icon">📋</span>
@@ -837,7 +1043,7 @@ const renderers = {
               <span class="demobook-card-arrow">➔</span>
             </div>
           </a>
-          <a href="https://zentry-demobook.vercel.app" target="_blank" rel="noopener noreferrer" class="demobook-card-link">
+          <a href="https://script.google.com/macros/s/AKfycbxsTrvsAbg_CVLNpDZA5gWlrtR_VLc_nsRGgkFeFsAfF-R3-hH2l0LbJNCwU-PaK_M1jQ/exec" target="_blank" rel="noopener noreferrer" class="demobook-card-link">
             <div class="demobook-card-minimal">
               <div class="demobook-card-content">
                 <span class="demobook-card-icon">📊</span>
@@ -849,6 +1055,147 @@ const renderers = {
         </div>
       </div>
     `;
+  },
+
+  // 7. Construcciones View (Cards)
+  construcciones: () => {
+    const workspace = document.querySelector('.workspace');
+    if (workspace) workspace.classList.add('minimal-view');
+
+    document.getElementById('page-title').textContent = 'Construcciones';
+    document.getElementById('properties-block').style.display = 'none';
+
+    const container = document.getElementById('workspace-content');
+    container.innerHTML = `
+      <div class="demobook-minimal-container">
+        <div class="demobook-grid">
+          <a href="#zentryos" class="demobook-card-link">
+            <div class="demobook-card-minimal">
+              <div class="demobook-card-content">
+                <span class="demobook-card-icon" style="font-size: 2rem;">🧱</span>
+                <span class="demobook-card-title">ZentryOS</span>
+              </div>
+              <span class="demobook-card-arrow">➔</span>
+            </div>
+          </a>
+          <a href="javascript:void(0)" class="demobook-card-link" style="opacity: 0.5; cursor: default;">
+            <div class="demobook-card-minimal">
+              <div class="demobook-card-content">
+                <span class="demobook-card-icon" style="font-size: 2rem;">🔒</span>
+                <span class="demobook-card-title">Próximamente</span>
+              </div>
+            </div>
+          </a>
+          <a href="javascript:void(0)" class="demobook-card-link" style="opacity: 0.5; cursor: default;">
+            <div class="demobook-card-minimal">
+              <div class="demobook-card-content">
+                <span class="demobook-card-icon" style="font-size: 2rem;">🔒</span>
+                <span class="demobook-card-title">Próximamente</span>
+              </div>
+            </div>
+          </a>
+        </div>
+      </div>
+    `;
+  },
+
+  // 8. Construcción ZentryOS View (Brick Wall)
+  zentryos: () => {
+    const workspace = document.querySelector('.workspace');
+    if (workspace) {
+      workspace.classList.add('minimal-view');
+      workspace.classList.add('full-width-view');
+    }
+
+    document.getElementById('page-title').textContent = 'ZentryOS: El Muro';
+    document.getElementById('properties-block').style.display = 'none';
+
+    const container = document.getElementById('workspace-content');
+    
+    // Logic to gather bricks
+    let allBricks = [];
+    const history = JSON.parse(localStorage.getItem('zentry_timeblock_history') || '[]');
+    const todayStr = state.personalDate || new Date().toISOString().split('T')[0];
+    const todayBlocks = JSON.parse(localStorage.getItem(`zentry_timeblock_${todayStr}`)) || {};
+    
+    // Gather from history
+    history.forEach(h => {
+      const hDate = h.date;
+      const hData = h.data || {};
+      for (const [time, block] of Object.entries(hData)) {
+        if (block && block.isBrick) {
+          allBricks.push({ date: hDate, time, text: block.text || 'Sin descripción', details: block.details || '', type: block.type || '' });
+        }
+      }
+    });
+
+    // Gather from today (if we don't already have today's blocks in history, though history usually has past dates or multiple backups)
+    // To avoid duplicates, we can check if a brick at (date, time) is already in allBricks
+    for (const [time, block] of Object.entries(todayBlocks)) {
+      if (block && block.isBrick) {
+        // Check for duplicate
+        const exists = allBricks.some(b => b.date === todayStr && b.time === time);
+        if (!exists) {
+          allBricks.push({ date: todayStr, time, text: block.text || 'Sin descripción', details: block.details || '', type: block.type || '' });
+        }
+      }
+    }
+
+    // Sort chronologically
+    allBricks.sort((a, b) => {
+      const dtA = new Date(`${a.date}T${a.time}:00`);
+      const dtB = new Date(`${b.date}T${b.time}:00`);
+      return dtA - dtB;
+    });
+
+    const totalBricks = allBricks.length;
+    // Zoom logic: start closer if few bricks, zoom out more if many.
+    // Minimum scale 0.1, maximum 1.0. Zoom out roughly 0.01 per brick after 20.
+    let baseScale = totalBricks <= 20 ? 1 : Math.max(0.1, 1 - ((totalBricks - 20) * 0.005));
+
+    container.innerHTML = `
+      <div class="brick-wall-wrapper">
+        <div class="brick-wall-header">
+          <a href="#construcciones" class="btn-back-to-selector">⬅️ Volver a Construcciones</a>
+          <div class="brick-wall-stats">
+            <span class="brick-count">🧱 ${totalBricks} Ladrillos</span>
+            <div class="zoom-controls">
+              <button id="zoom-out" class="zoom-btn" title="Alejar">➖</button>
+              <button id="zoom-reset" class="zoom-btn" title="Restaurar Zoom">🔄</button>
+              <button id="zoom-in" class="zoom-btn" title="Acercar">➕</button>
+            </div>
+          </div>
+        </div>
+        
+        <div class="brick-wall-viewport" id="wall-viewport">
+          <div class="brick-wall-canvas" id="wall-canvas" style="transform: scale(${baseScale});">
+            ${renderBricksHTML(allBricks)}
+          </div>
+        </div>
+      </div>
+      
+      <!-- Modal for Brick Details -->
+      <div id="brick-modal" class="modal-overlay">
+        <div class="modal-content glass-modal" style="max-width: 450px; border-top: 4px solid var(--primary);">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 12px;">
+            <h3 id="brick-modal-date" style="color: var(--primary-dark); font-size: 14px; opacity: 0.8; margin: 0;"></h3>
+            <span id="brick-modal-type" style="font-size: 11px; font-weight: bold; border-radius: 6px; padding: 3px 8px; text-transform: uppercase;"></span>
+          </div>
+          <h2 id="brick-modal-text" contenteditable="false" style="color: var(--text-main); font-size: 18px; line-height: 1.4; font-weight: 700; margin-top: 0; margin-bottom: 16px; border-radius: 6px; padding: 4px; outline: none;"></h2>
+          <div id="brick-modal-details-container" style="background: rgba(0,0,0,0.03); padding: 12px; border-radius: 8px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 20px;">
+            <p style="font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 6px; text-transform: uppercase;">Detalles de la Acción</p>
+            <p id="brick-modal-details" contenteditable="false" style="color: var(--text-dark); font-size: 14px; line-height: 1.5; white-space: pre-wrap; margin: 0; border-radius: 6px; padding: 4px; outline: none;"></p>
+          </div>
+          <div style="text-align: right; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap;">
+            <button id="brick-modal-delete" class="btn-danger" style="padding: 8px 16px; border-radius: 8px; font-size: 12px; border: none; cursor: pointer;">Eliminar Ladrillo</button>
+            <button id="brick-modal-edit" class="btn-secondary" style="padding: 8px 16px; border-radius: 8px; font-size: 12px; cursor: pointer;">Editar</button>
+            <button id="brick-modal-close" class="btn-primary" style="padding: 8px 16px; border-radius: 8px; font-size: 12px; cursor: pointer;">Cerrar</button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    setupBrickWallInteraction(baseScale);
   },
 
   // 5. Page Document renderer
@@ -1027,9 +1374,11 @@ function renderEspacioPersonal(container) {
     const btnImpClass = activeType === 'importante' ? ' active' : '';
     const btnProdClass = activeType === 'productivo' ? ' active' : '';
     const btnEtcClass = activeType === 'etc' ? ' active' : '';
+    const isBrick = data.isBrick ? ' active' : '';
 
     const typeSelectorHtml = `
       <div class="timeblock-type-selector">
+        <button class="timeblock-brick-btn${isBrick}" data-time="${slot.time}" title="Convertir a Ladrillo">🧱</button>
         <button class="timeblock-type-btn type-imp${btnImpClass}" data-time="${slot.time}" data-type="importante" title="Importante">Imp</button>
         <button class="timeblock-type-btn type-prod${btnProdClass}" data-time="${slot.time}" data-type="productivo" title="Productivo">Prod</button>
         <button class="timeblock-type-btn type-etc${btnEtcClass}" data-time="${slot.time}" data-type="etc" title="Etcétera">Etc...</button>
@@ -1260,6 +1609,20 @@ function renderEspacioPersonal(container) {
       } else {
         data[time].type = type;
       }
+      saveTimeblockData(state.personalDate, data);
+      renderEspacioPersonal(container);
+    });
+  });
+
+  // Brick buttons
+  container.querySelectorAll('.timeblock-brick-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const time = e.target.dataset.time;
+      const data = getTimeblockData(state.personalDate);
+      if (!data[time]) data[time] = {};
+      
+      data[time].isBrick = !data[time].isBrick;
+      
       saveTimeblockData(state.personalDate, data);
       renderEspacioPersonal(container);
     });
@@ -1689,6 +2052,7 @@ function handleRouting() {
   if (workspace) {
     workspace.classList.remove('minimal-view');
     workspace.classList.remove('backlog-view'); // Reset backlog view full width
+    workspace.classList.remove('full-width-view');
   }
 
   // Restore elements that might be hidden by Espacio Personal
