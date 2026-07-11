@@ -93,6 +93,23 @@ function saveTimeblockData(dateStr, data) {
   localStorage.setItem(`zentry_timeblock_${dateStr}`, JSON.stringify(data));
 }
 
+function updateBrickInStorage(dateStr, timeStr, updates) {
+  const data = getTimeblockData(dateStr);
+  if (data && data[timeStr]) {
+    Object.assign(data[timeStr], updates);
+    saveTimeblockData(dateStr, data);
+    
+    const history = JSON.parse(localStorage.getItem('zentry_timeblock_history') || '[]');
+    const hIndex = history.findIndex(h => h.date === dateStr);
+    if (hIndex !== -1) {
+      if (history[hIndex].data && history[hIndex].data[timeStr]) {
+        Object.assign(history[hIndex].data[timeStr], updates);
+        localStorage.setItem('zentry_timeblock_history', JSON.stringify(history));
+      }
+    }
+  }
+}
+
 function checkOAuthCallback() {
   const hash = window.location.hash;
   if (hash.includes('access_token=')) {
