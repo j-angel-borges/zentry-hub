@@ -1,6 +1,6 @@
 import './style.css';
 import db from './ssot-db.json';
-
+ 
 // App State
 const state = {
   activeView: 'backlog', // 'backlog', 'ideas', 'metrics', 'branding', 'doc'
