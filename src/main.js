@@ -1070,6 +1070,31 @@ const renderers = {
             </div>
           </a>
         </div>
+    `;
+  },
+
+  // 6.5. Prospección View
+  prospeccion: () => {
+    const workspace = document.querySelector('.workspace');
+    if (workspace) workspace.classList.add('minimal-view');
+
+    document.getElementById('page-title').textContent = 'Prospección';
+    document.getElementById('properties-block').style.display = 'none';
+
+    const container = document.getElementById('workspace-content');
+    container.innerHTML = `
+      <div class="demobook-minimal-container">
+        <div class="demobook-grid">
+          <a href="https://script.google.com/macros/s/AKfycbzXCowYg5XsmnN8s6HJVDtrWK-nh8sBERuP82qGtTDtM9WAm7j3RXotY6bwUsi6eLSlTA/exec" target="_blank" rel="noopener noreferrer" class="demobook-card-link">
+            <div class="demobook-card-minimal">
+              <div class="demobook-card-content">
+                <span class="demobook-card-icon">🎯</span>
+                <span class="demobook-card-title">ZentryOS-Prospect</span>
+              </div>
+              <span class="demobook-card-arrow">➔</span>
+            </div>
+          </a>
+        </div>
       </div>
     `;
   },
